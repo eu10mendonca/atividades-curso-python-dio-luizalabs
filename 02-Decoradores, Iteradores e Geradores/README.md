@@ -11,7 +11,7 @@ organizado e observável. ✨
 ## 🎯 Objetivos Técnicos
 
 - 🧰 Criar um **decorador parametrizado** (`registrar_log`) para registrar início
-  e fim de operações críticas diretamente no console.
+  e fim das principais operações no console.
 - 🧩 Encapsular a interface com o usuário em funções específicas, mantendo a
   camada de regras de negócio isolada.
 - 🔁 Exercitar o uso de **iteradores customizados** (`IteradorContas`) e
@@ -59,8 +59,3 @@ organizado e observável. ✨
 ```bash
 cd 02-Decoradores, Iteradores e Geradores
 python desafio.py
-```
-
-Durante a execução, utilize o menu interativo para cadastrar usuários, criar
-contas, registrar movimentações e consultar o extrato. Todos os passos são
-logados automaticamente graças ao decorador `registrar_log`. 📝💻
