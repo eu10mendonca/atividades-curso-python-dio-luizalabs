@@ -238,7 +238,7 @@ def atualizar_extrato(
         {
             "valor": valor,
             "data": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "descrição": {"deposito": "Depósito", "saque": "Saque"}.get(
+            "tipo": {"deposito": "Depósito", "saque": "Saque"}.get(
                 operacao, operacao.title()
             ),
         }
@@ -257,10 +257,10 @@ def recuperar_conta(lista_contas: list[dict[str, Any]]) -> dict[str, Any] | str:
         ou caso não existam contas cadastradas.
 
     Args:
-        lista_contas (list[dict]): Lista contendo todas as contas cadastradas.
+        lista_contas (list[dict[str, Any]]): Lista contendo todas as contas cadastradas.
 
     Returns:
-        dict | str: O dicionário da conta encontrada ou uma mensagem de erro.
+        dict[str, Any] | str: O dicionário da conta encontrada ou uma mensagem de erro.
     """
 
     if not lista_contas:
@@ -292,10 +292,10 @@ def efetuar_deposito(
     entrada e registra a movimentação no extrato da conta.
 
     Args:
-        lista_contas (list[dict]): Lista de contas que será atualizada.
+        lista_contas (list[dict[str, Any]]): Lista de contas que será atualizada.
 
     Returns:
-        tuple[list[dict], str]: A lista de contas (com a conta atualizada, se houver)
+        tuple[list[dict[str, Any]], str]: A lista de contas (com a conta atualizada, se houver)
             e uma mensagem indicando o resultado da operação.
     """
 
@@ -345,10 +345,10 @@ def efetuar_saque(
         limite (float): Valor máximo permitido por operação.
         numero_saques (int): Quantidade de saques já realizados no dia.
         limite_saques (int): Limite diário de saques.
-        lista_contas (list[dict]): Lista de contas que será atualizada.
+        lista_contas (list[dict[str, Any]]): Lista de contas que será atualizada.
 
     Returns:
-        tuple[int, list[dict], str]: Número de saques atualizado, lista de contas
+        tuple[int, list[dict[str, Any]], str]: Número de saques atualizado, lista de contas
             (com a conta atualizada) e mensagem de resultado.
     """
 
@@ -390,6 +390,74 @@ def efetuar_saque(
     return numero_saques, lista_contas, msg
 
 
+def iterar_extrato(
+    extrato: dict[str, list[dict[str, Any]]],
+) -> Iterator[list[dict[str, Any]]]:
+    """Itera sobre as listas de transações agrupadas no extrato.
+
+    Cada chave do dicionário de extrato representa um tipo de operação
+    (por exemplo, "deposito" ou "saque") e aponta para uma lista de
+    registros. Este gerador devolve cada uma dessas listas para que
+    outro gerador possa tratar os itens individualmente.
+
+    Args:
+        extrato (dict[str, list[dict[str, Any]]]): Estrutura de extrato da conta,
+            agrupada por tipo de operação.
+
+    Yields:
+        list[dict[str, Any]]: Lista de registros de transações pertencentes
+            a um tipo específico de operação.
+    """
+    for lista_transacoes in extrato.values():
+        yield lista_transacoes
+
+
+def iterar_transacoes(
+    tipo_transacao: str, lista_transacoes: list[dict[str, Any]]
+) -> Iterator[dict[str, Any]]:
+    """Itera sobre uma lista de transações, aplicando um filtro opcional por tipo.
+
+    Se `tipo_transacao` for uma string não vazia, somente os registros cujo
+    campo "tipo" coincida com esse valor serão gerados. Caso contrário, todas
+    as transações da lista são devolvidas.
+
+    Args:
+        tipo_transacao (str): Descrição do tipo de transação a filtrar
+            (por exemplo, "Depósito" ou "Saque"). Se vazio, nenhuma filtragem
+            é aplicada.
+        lista_transacoes (list[dict[str, Any]]): Lista de transações a ser
+            percorrida.
+
+    Yields:
+        dict[str, Any]: Registro individual de transação que atende ao filtro.
+    """
+    for transacao in lista_transacoes:
+        if not tipo_transacao or transacao.get("tipo") == tipo_transacao:
+            yield transacao
+
+
+def recuperar_tipo_transacao() -> str:
+    """Obtém, via input, o tipo de transação desejado para filtragem do extrato.
+
+    O usuário pode escolher visualizar apenas depósitos, apenas saques ou
+    todas as movimentações. O valor retornado é utilizado pelos geradores
+    de transações para aplicar (ou não) o filtro.
+
+    Returns:
+        str: "Depósito" para a opção 1, "Saque" para a opção 2 ou string
+            vazia quando o relatório completo for solicitado.
+    """
+    opcoes = {"1": "Depósito", "2": "Saque", "3": ""}
+
+    while True:
+        tipo_transacao = input(
+            "Digite 1 para exibir apenas transações de depósito, "
+            "2 para exibir apenas transações de saque e 3 para gerar o relatório completo: "
+        )
+        if tipo_transacao in opcoes:
+            return opcoes[tipo_transacao]
+
+
 def gerar_extrato(*, lista_contas: list[dict[str, Any]]) -> str:
     """Gera o extrato textual da conta selecionada.
 
@@ -408,27 +476,28 @@ def gerar_extrato(*, lista_contas: list[dict[str, Any]]) -> str:
     if isinstance(conta, str):
         return conta
 
+    tipo_transacao = recuperar_tipo_transacao()
+
     extrato_completo: list[dict[str, Any]] = []
     extrato = conta.get("extrato")
     msg = " EXTRATO ".center(70, "=")
     if not extrato:
         msg += "\nSem movimentações.\n"
     else:
-        for tipo_transacao, lista_transacoes in extrato.items():
-            for registro in lista_transacoes:
+        for lista_transacoes in iterar_extrato(extrato):
+            for registro in iterar_transacoes(
+                tipo_transacao=tipo_transacao, lista_transacoes=lista_transacoes
+            ):
+                extrato_completo.append(registro)
 
-                registro_completo: dict = registro.copy()
-                registro_completo["tipo"] = tipo_transacao
-                extrato_completo.append(registro_completo)
+        extrato_completo = sorted(extrato_completo, key=itemgetter("data"))
 
-        extrato_ordenado = sorted(extrato_completo, key=itemgetter("data"))
-
-        for registro in extrato_ordenado:
+        for registro in extrato_completo:
             data_registro = f"\n{registro.get('data')}"
             tipo_operacao_registro = f"{registro.get('tipo')}"
             valor_operacao = (
                 f"R$ +{registro.get('valor'):.2f}"
-                if tipo_operacao_registro == "deposito"
+                if tipo_operacao_registro == "Depósito"
                 else f"R$ -{registro.get('valor'):.2f}"
             )
             valor_operacao = f"{valor_operacao:>21}"
@@ -494,11 +563,11 @@ def cadastrar_usuario(
     adiciona o novo registro à lista existente.
 
     Args:
-        lista_usuarios (list[dict]): Lista atual de usuários cadastrados,
+        lista_usuarios (list[dict[str, Any]]): Lista atual de usuários cadastrados,
             onde cada item representa um usuário com seus dados pessoais e endereço.
 
     Returns:
-        tuple[list[dict], str]:
+        tuple[list[dict[str, Any]], str]:
             - Lista atualizada de usuários.
             - Mensagem indicando o resultado da operação (sucesso ou erro).
     """
@@ -587,11 +656,11 @@ def cadastrar_conta(
     de conta único e adiciona o novo registro à lista de contas.
 
     Args:
-        lista_usuarios (list[dict]): Lista de usuários cadastrados.
-        lista_contas (list[dict]): Lista de contas já cadastradas.
+        lista_usuarios (list[dict[str, Any]]): Lista de usuários cadastrados.
+        lista_contas (list[dict[str, Any]]): Lista de contas já cadastradas.
 
     Returns:
-        tuple[list[dict], str]:
+        tuple[list[dict[str, Any]], str]:
             - Lista de contas atualizada.
             - Mensagem indicando o resultado da operação.
     """
@@ -615,7 +684,7 @@ def cadastrar_conta(
     return (lista_contas, "Conta cadastrada com sucesso!")
 
 
-def valor_default(v, default: str = "-") -> str:
+def valor_default(v: Any, default: str = "-") -> str:
     """Normaliza valores textuais para exibição em tabelas.
 
     Remove espaços de uma string (se aplicável) e retorna um valor padrão quando
@@ -630,7 +699,7 @@ def valor_default(v, default: str = "-") -> str:
     """
     if isinstance(v, str):
         v = v.strip()
-    return v if v not in (None, "") else default
+    return str(v) if v not in (None, "") else default
 
 
 def iterar_usuarios(
@@ -916,7 +985,7 @@ def main():
     lista_contas: list[dict[str, Any]] = []
 
     # Descomente a linha abaixo apenas para testes locais:
-    carregar_dados_mock(lista_usuarios, lista_contas)
+    # carregar_dados_mock(lista_usuarios, lista_contas)
 
     valor_limite_saque = 500
     numero_saques = 0
